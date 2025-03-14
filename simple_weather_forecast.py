@@ -5,25 +5,31 @@ Generates today's hourly weather forecast that can be copied and pasted
 """
 
 import asyncio
-import os
 import datetime
+import os
 import logging
 from dotenv import load_dotenv
 from bmkg import WeatherForecast
 
-# Configure logging
+# Load environment variables
+load_dotenv()
+
+# Configure logging with custom format
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler()
-    ]
 )
+
+# Set higher level for other loggers to reduce noise
+logging.getLogger("bmkg").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+logging.getLogger("aiohttp").setLevel(logging.WARNING)
+
+# Get logger for this module
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
-AREA_CODE = os.getenv('AREA_CODE', '62.71.03.1003')  # Default: Bukit Tunggal, Palangkaraya
+# Get area code from environment variable or use default
+AREA_CODE = os.getenv("AREA_CODE", "62.71.03.1003")  # Default is Palangkaraya
 
 def get_weather_condition_description_id(code):
     """
@@ -55,15 +61,6 @@ async def get_bmkg_weather_data():
         async with WeatherForecast() as weather_forecast:
             weather_data = await weather_forecast.get_weather_forecast(AREA_CODE)
             logger.info(f"Successfully fetched weather data for area code: {AREA_CODE}")
-            
-            # Log the structure of the weather data to debug
-            if hasattr(weather_data, 'weathers') and weather_data.weathers:
-                logger.info(f"Number of weather entries: {len(weather_data.weathers)}")
-                for i, weather in enumerate(weather_data.weathers[:2]):  # Log first 2 entries as sample
-                    logger.info(f"Weather entry {i} attributes: {dir(weather)}")
-                    logger.info(f"Weather entry {i} temperature: {getattr(weather, 'temperature', 'Not available')}")
-                    logger.info(f"Weather entry {i} weather code: {getattr(weather, 'weather', 'Not available')}")
-            
             return weather_data
     except Exception as e:
         logger.error(f"Error fetching weather data: {e}")
@@ -224,7 +221,7 @@ async def main():
         # Format and display the weather message
         message = format_weather_message(weather_data)
         print("\n" + "="*50)
-        print("WEATHER FORECAST (COPY BELOW)")
+        print("WEATHER FORECAST")
         print("="*50)
         print(message)
         print("="*50)
