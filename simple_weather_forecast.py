@@ -126,37 +126,34 @@ def format_weather_message(weather_data):
         
         # Process weather forecasts
         if hasattr(weather_data, 'weathers') and weather_data.weathers:
-            today_forecasts = []
+            day_forecasts = []
+            night_forecasts = []
             
             # Since timestamps may not be available, we'll create our own forecasts
-            # for today's hours based on the available weather data
+            # based on the available weather data
             weathers = weather_data.weathers
             
-            # Create more hourly forecasts for today
-            # Generate forecast times for each hour remaining in the day
+            # Current time and date
             current_hour = now.hour
+            current_date = now.date()
+            tomorrow_date = current_date + datetime.timedelta(days=1)
             
-            # Calculate hours remaining in the day (from current hour to midnight)
-            hours_remaining = 24 - current_hour
+            # Determine number of forecasts to show (daylight and evening)
+            day_forecast_count = min(8, len(weathers))
+            night_forecast_count = min(4, len(weathers))
             
-            # Determine number of forecasts to show (use at most 8 forecasts)
-            forecast_count = min(8, hours_remaining, len(weathers))
-            
-            # Calculate the interval between forecasts to spread them throughout the day
-            interval = max(1, hours_remaining // forecast_count)
-            
-            # Create forecasts at regular intervals
-            for i in range(forecast_count):
+            # Create daytime forecasts (for remaining hours of today)
+            for i in range(day_forecast_count):
                 if i < len(weathers):
-                    hours_ahead = i * interval + 1  # Start from 1 hour ahead
+                    hours_ahead = i + 1  # Start from 1 hour ahead
                     
                     # Calculate forecast time
                     forecast_time = now + datetime.timedelta(hours=hours_ahead)
                     # Round to the nearest hour
                     forecast_time = forecast_time.replace(minute=0, second=0, microsecond=0)
                     
-                    # Only include forecasts for today
-                    if forecast_time.date() == now.date():
+                    # Only include forecasts for today's daytime (up to 18:00)
+                    if forecast_time.date() == current_date and forecast_time.hour <= 18:
                         weather_entry = weathers[i]
                         
                         # Get temperature - try different attribute names that might be used
@@ -172,15 +169,64 @@ def format_weather_message(weather_data):
                             'weather': getattr(weather_entry, 'weather', None),
                             'temperature': temperature
                         }
-                        today_forecasts.append(forecast)
+                        day_forecasts.append(forecast)
+            
+            # Create night forecasts (evening and night hours)
+            night_offset = day_forecast_count
+            for i in range(night_forecast_count):
+                idx = i + night_offset
+                if idx < len(weathers):
+                    weather_entry = weathers[idx]
+                    
+                    # For night hours, we'll start from 19:00 today and go into early hours of tomorrow
+                    if current_hour < 19:
+                        # If it's before 19:00, create forecasts starting from 19:00
+                        night_hours = [19, 21, 23, 1]  # Fixed hours for evening and night
+                        hour = night_hours[i] if i < len(night_hours) else 1
+                        
+                        # Handle hours past midnight
+                        if hour < 12 and hour < 6:  # Early morning hours
+                            forecast_time = datetime.datetime.combine(
+                                tomorrow_date,  # Use tomorrow's date
+                                datetime.time(hour, 0)
+                            )
+                        else:
+                            forecast_time = datetime.datetime.combine(
+                                current_date,  # Use today's date
+                                datetime.time(hour, 0)
+                            )
+                    else:
+                        # If it's already evening/night, create forecasts for the next 8 hours
+                        hours_ahead = i * 2 + 1  # Every 2 hours
+                        
+                        # Calculate forecast time
+                        forecast_time = now + datetime.timedelta(hours=hours_ahead)
+                        # Round to the nearest hour
+                        forecast_time = forecast_time.replace(minute=0, second=0, microsecond=0)
+                    
+                    # Get temperature
+                    temperature = None
+                    for temp_attr in ['temperature', 'temp', 't', 'suhu']:
+                        if hasattr(weather_entry, temp_attr):
+                            temperature = getattr(weather_entry, temp_attr)
+                            if temperature is not None:
+                                break
+                    
+                    forecast = {
+                        'datetime': forecast_time,
+                        'weather': getattr(weather_entry, 'weather', None),
+                        'temperature': temperature
+                    }
+                    night_forecasts.append(forecast)
             
             # Format forecasts into message
-            if today_forecasts:
+            # Daytime forecasts
+            if day_forecasts:
                 has_forecasts = True
-                message += "*Prakiraan Cuaca Hari Ini:*\n"
+                message += "*Prakiraan Cuaca Siang Hari:*\n"
                 
                 # Add forecasts as a simple list
-                for forecast in today_forecasts:
+                for forecast in day_forecasts:
                     # Format time - only show the hour, no minutes
                     time_str = forecast['datetime'].strftime("%H:00")
                     
@@ -197,7 +243,37 @@ def format_weather_message(weather_data):
                     
                     # Add forecast to message in a simple list format
                     message += f"• {time_str} WIB: {weather_condition}{temp_str}\n"
-            else:
+            
+            # Night forecasts
+            if night_forecasts:
+                has_forecasts = True
+                
+                # Add a line break between day and night forecasts
+                if day_forecasts:
+                    message += "\n"
+                
+                message += "*Prakiraan Cuaca Malam Hari:*\n"
+                
+                # Add forecasts as a simple list
+                for forecast in night_forecasts:
+                    # Format time - only show the hour, no minutes
+                    time_str = forecast['datetime'].strftime("%H:00")
+                    
+                    # Get weather description
+                    weather_condition = "Data tidak tersedia"
+                    if forecast['weather'] is not None:
+                        weather_code = str(forecast['weather'])
+                        weather_condition = get_weather_condition_description_id(weather_code)
+                    
+                    # Format temperature
+                    temp_str = ""
+                    if forecast['temperature'] is not None:
+                        temp_str = f" {forecast['temperature']}°C"
+                    
+                    # Add forecast to message in a simple list format
+                    message += f"• {time_str} WIB: {weather_condition}{temp_str}\n"
+            
+            if not has_forecasts:
                 message += "*Prakiraan Cuaca:* Tidak ada prakiraan untuk hari ini\n"
         else:
             message += "*Prakiraan Cuaca:* Data tidak tersedia\n"
@@ -226,7 +302,7 @@ async def main():
         print(message)
         print("="*50)
     else:
-        print("⚠️ Failed to retrieve weather data. Please check your internet connection or try again later.")
+        print("⚠️ Tidak dapat mengambil data cuaca dari BMKG. Silakan periksa koneksi internet Anda atau coba lagi nanti.")
 
 if __name__ == "__main__":
     asyncio.run(main())
